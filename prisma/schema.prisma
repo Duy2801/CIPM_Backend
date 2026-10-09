@@ -1,0 +1,944 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ProjectStatus {
+  PREPARATION
+  DESIGN
+  PROCUREMENT
+  CONSTRUCTION
+  COMPENSATION
+  ACCEPTANCE
+  SETTLEMENT
+  COMPLETED
+  CLOSED
+}
+
+enum ProjectPhaseStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  DRAFT
+  PENDING_CHIEF_ACCOUNTANT
+  PENDING_DIRECTOR
+  APPROVED
+  DISBURSED
+  REJECTED
+}
+
+enum HouseholdSpecialStatus {
+  NORMAL
+  NON_COOPERATIVE
+  COMPLAINT
+  COERCION
+}
+
+enum HouseholdStepStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  NOT_APPLICABLE
+}
+
+enum ProcedureMilestone {
+  ACCEPTANCE_COMPLETED
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+  HIDDEN
+}
+
+enum RoleCode {
+  DIRECTOR
+  DEPUTY_DIRECTOR
+  TECHNICAL_OFFICER
+  CHIEF_ACCOUNTANT
+  ACCOUNTANT
+  COMPENSATION_OFFICER
+  ADMINISTRATIVE_OFFICER
+  LEAD
+  MEMBER
+}
+
+model User {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  email                 String                  @unique
+  fullName              String
+  employmentType        String?
+  password              String
+  phone                 String?
+  citizenId             String?                 @unique
+  age                   Int?
+  status                UserStatus              @default(ACTIVE)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  teamId                String?                 @db.Uuid
+  team                  Team?                   @relation(fields: [teamId], references: [id])
+  userRoles             UserRole[]
+  projectAssignments    ProjectAssignment[]     @relation("AssignedUser")
+  assignmentsMade       ProjectAssignment[]     @relation("AssignmentAuthor")
+  projectGrantsMade     ProjectPermissionGrant[] @relation("ProjectGrantAuthor")
+  progressUpdates       ProjectProgressUpdate[]
+  procedureUpdates      ProjectProcedureStep[]
+  procedureEvents       ProcedureStepEvent[]
+  capitalAdjustments    CapitalPlanAdjustment[]
+  paymentsCreated       Payment[]
+  paymentApprovals      PaymentApproval[]
+  householdStepsUpdated HouseholdStep[]
+  householdStepEvents   HouseholdStepEvent[]
+  procurementSteps      ProcureStep[]
+  uploadedAttachments   Attachment[]
+  auditLogs             AuditLog[]
+  notifications         Notification[]
+  reportsCreated        ReportDraft[]           @relation("ReportAuthor")
+  reportsReviewed       ReportDraft[]           @relation("ReportReviewer")
+
+  @@index([teamId])
+  @@map("users")
+}
+
+model Team {
+  id            String         @id @default(uuid()) @db.Uuid
+  code          String         @unique
+  name          String
+  sortOrder     Int            @default(0)
+  users         User[]
+  projectPhases ProjectPhase[]
+
+  @@map("teams")
+}
+
+model Role {
+  id              String           @id @default(uuid()) @db.Uuid
+  code            RoleCode         @unique
+  name            String
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @default(uuid()) @db.Uuid
+  code            String           @unique
+  name            String
+  rolePermissions RolePermission[]
+  projectGrants   ProjectPermissionGrant[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId String @map("user_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id])
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id") @db.Uuid
+  permissionId String     @map("permission_id") @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Project {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  code                 String                  @unique
+  name                 String
+  constructionType     String
+  status               ProjectStatus
+  totalInvestment      Decimal                 @db.Decimal(20, 2)
+  plannedProgress      Decimal                 @db.Decimal(5, 2)
+  actualProgress       Decimal                 @db.Decimal(5, 2)
+  plannedStartDate     DateTime?               @db.Date
+  plannedEndDate       DateTime?               @db.Date
+  actualCompletionDate DateTime?               @db.Date
+  closedAt             DateTime?
+  closureReason        String?
+  assignments          ProjectAssignment[]
+  phases               ProjectPhase[]
+  progressUpdates      ProjectProgressUpdate[]
+  procedureSteps       ProjectProcedureStep[]
+  capitalPlans         AnnualCapitalPlan[]
+  contracts            Contract[]
+  payments             Payment[]
+  settlement           ProjectSettlement?
+  households           Household[]
+  compensationPlans    CompensationPlan[]
+  procurementPackages  ProcurementPackage[]
+  warranties           Warranty[]
+  notifications        Notification[]
+  legalDocuments       ProjectLegalDocument[]
+  reportDrafts         ReportDraft[]
+
+  @@map("projects")
+}
+
+model ProjectPhase {
+  id          String             @id @default(uuid()) @db.Uuid
+  projectId   String             @db.Uuid
+  phaseCode   String
+  teamId      String             @db.Uuid
+  status      ProjectPhaseStatus @default(PLANNED)
+  startedAt   DateTime?          @db.Date
+  endedAt     DateTime?          @db.Date
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  project     Project            @relation(fields: [projectId], references: [id])
+  team        Team               @relation(fields: [teamId], references: [id])
+  assignments ProjectAssignment[]
+
+  @@unique([id, projectId])
+  @@index([projectId, phaseCode])
+  @@index([teamId, status])
+  @@map("project_phases")
+}
+
+model ProjectAssignment {
+  id             String        @id @default(uuid()) @db.Uuid
+  projectId      String        @db.Uuid
+  projectPhaseId String?       @db.Uuid
+  userId         String        @db.Uuid
+  assignmentType String
+  startDate      DateTime      @db.Date
+  endDate        DateTime?     @db.Date
+  assignedById   String?       @db.Uuid
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  project        Project       @relation(fields: [projectId], references: [id])
+  projectPhase   ProjectPhase? @relation(fields: [projectPhaseId, projectId], references: [id, projectId], onDelete: Restrict)
+  user           User          @relation("AssignedUser", fields: [userId], references: [id])
+  assignedBy     User?         @relation("AssignmentAuthor", fields: [assignedById], references: [id])
+  permissionGrants ProjectPermissionGrant[]
+
+  @@index([projectId, assignmentType])
+  @@index([projectPhaseId, projectId])
+  @@index([userId, endDate])
+  @@map("project_assignments")
+}
+
+model ProjectPermissionGrant {
+  id                  String            @id @default(uuid()) @db.Uuid
+  projectAssignmentId String            @db.Uuid
+  permissionId        String            @db.Uuid
+  grantedById         String            @db.Uuid
+  validFrom           DateTime          @default(now())
+  expiresAt           DateTime?
+  revokedAt           DateTime?
+  createdAt           DateTime          @default(now())
+  assignment          ProjectAssignment @relation(fields: [projectAssignmentId], references: [id], onDelete: Restrict)
+  permission          Permission        @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+  grantedBy           User              @relation("ProjectGrantAuthor", fields: [grantedById], references: [id], onDelete: Restrict)
+
+  @@index([projectAssignmentId, permissionId, revokedAt])
+  @@index([permissionId])
+  @@map("project_permission_grants")
+}
+
+model ProjectProgressUpdate {
+  id                String   @id @default(uuid()) @db.Uuid
+  projectId         String   @db.Uuid
+  updatedById       String   @db.Uuid
+  updateDate        DateTime @db.Date
+  oldPlannedPercent Decimal  @db.Decimal(5, 2)
+  newPlannedPercent Decimal  @db.Decimal(5, 2)
+  oldActualPercent  Decimal  @db.Decimal(5, 2)
+  newActualPercent  Decimal  @db.Decimal(5, 2)
+  note              String?
+  createdAt         DateTime @default(now())
+  project           Project  @relation(fields: [projectId], references: [id])
+  updatedBy         User     @relation(fields: [updatedById], references: [id])
+
+  @@index([projectId, updateDate])
+  @@map("project_progress_updates")
+}
+
+model ProcedureStepTemplate {
+  id              String                  @id @default(uuid()) @db.Uuid
+  code            String                  @unique
+  name            String
+  milestone       ProcedureMilestone?
+  parentId        String?                 @db.Uuid
+  sortOrder       Int
+  isRequired      Boolean                 @default(true)
+  minDays         Int?
+  maxDays         Int?
+  responsibleUnit String?
+  isActive        Boolean                 @default(true)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  parent          ProcedureStepTemplate?  @relation("ProcedureHierarchy", fields: [parentId], references: [id])
+  children        ProcedureStepTemplate[] @relation("ProcedureHierarchy")
+  projectSteps    ProjectProcedureStep[]
+
+  @@map("procedure_step_templates")
+}
+
+model ProjectProcedureStep {
+  id            String                    @id @default(uuid()) @db.Uuid
+  projectId     String                    @db.Uuid
+  templateId    String                    @db.Uuid
+  status        String                    @default("PENDING")
+  enabled       Boolean                   @default(true)
+  plannedStart  DateTime?                 @db.Date
+  dueDate       DateTime?                 @db.Date
+  completedAt   DateTime?
+  skippedReason String?
+  updatedById   String?                   @db.Uuid
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  project       Project                   @relation(fields: [projectId], references: [id])
+  template      ProcedureStepTemplate     @relation(fields: [templateId], references: [id])
+  updatedBy     User?                     @relation(fields: [updatedById], references: [id])
+  events        ProcedureStepEvent[]
+  attachments   ProcedureStepAttachment[]
+
+  @@unique([projectId, templateId])
+  @@index([status, dueDate])
+  @@map("project_procedure_steps")
+}
+
+model ProcedureStepEvent {
+  id            String               @id @default(uuid()) @db.Uuid
+  projectStepId String               @db.Uuid
+  fromStatus    String?
+  toStatus      String
+  changedById   String               @db.Uuid
+  changedAt     DateTime             @default(now())
+  reason        String?
+  projectStep   ProjectProcedureStep @relation(fields: [projectStepId], references: [id])
+  changedBy     User                 @relation(fields: [changedById], references: [id])
+
+  @@index([projectStepId, changedAt])
+  @@map("procedure_step_events")
+}
+
+model FundingSource {
+  id           String              @id @default(uuid()) @db.Uuid
+  code         String              @unique
+  name         String
+  description  String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  capitalPlans AnnualCapitalPlan[]
+
+  @@map("funding_sources")
+}
+
+model AnnualCapitalPlan {
+  id              String                  @id @default(uuid()) @db.Uuid
+  projectId       String                  @db.Uuid
+  fundingSourceId String                  @db.Uuid
+  year            Int
+  approvedAmount  Decimal                 @db.Decimal(20, 2)
+  currentAmount   Decimal                 @db.Decimal(20, 2)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  project         Project                 @relation(fields: [projectId], references: [id])
+  fundingSource   FundingSource           @relation(fields: [fundingSourceId], references: [id])
+  adjustments     CapitalPlanAdjustment[]
+
+  @@unique([projectId, fundingSourceId, year])
+  @@map("annual_capital_plans")
+}
+
+model CapitalPlanAdjustment {
+  id            String                        @id @default(uuid()) @db.Uuid
+  capitalPlanId String                        @db.Uuid
+  amountChange  Decimal                       @db.Decimal(20, 2)
+  reason        String
+  approvedAt    DateTime?                     @db.Date
+  createdById   String                        @db.Uuid
+  createdAt     DateTime                      @default(now())
+  capitalPlan   AnnualCapitalPlan             @relation(fields: [capitalPlanId], references: [id])
+  createdBy     User                          @relation(fields: [createdById], references: [id])
+  attachments   CapitalAdjustmentAttachment[]
+
+  @@map("capital_plan_adjustments")
+}
+
+model Contractor {
+  id                String               @id @default(uuid()) @db.Uuid
+  name              String
+  taxCode           String?              @unique
+  address           String?
+  contactName       String?
+  phone             String?
+  type              String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  contracts         Contract[]
+  winningPackages   ProcurementPackage[]
+  bidSubmissions    BidSubmission[]
+  warrantyIncidents WarrantyIncident[]
+
+  @@map("contractors")
+}
+
+model Contract {
+  id                   String              @id @default(uuid()) @db.Uuid
+  projectId            String              @db.Uuid
+  procurementPackageId String?             @db.Uuid
+  contractorId         String              @db.Uuid
+  contractNumber       String              @unique
+  signedDate           DateTime            @db.Date
+  contractValue        Decimal             @db.Decimal(20, 2)
+  startDate            DateTime?           @db.Date
+  endDate              DateTime?           @db.Date
+  status               String              @default("ACTIVE")
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  project              Project             @relation(fields: [projectId], references: [id])
+  procurementPackage   ProcurementPackage? @relation(fields: [procurementPackageId], references: [id])
+  contractor           Contractor          @relation(fields: [contractorId], references: [id])
+  payments             Payment[]
+  warranties           Warranty[]
+
+  @@index([projectId, status])
+  @@map("contracts")
+}
+
+model TreasuryAccount {
+  id            String    @id @default(uuid()) @db.Uuid
+  accountNumber String    @unique
+  accountName   String
+  treasuryName  String
+  status        String    @default("ACTIVE")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  payments      Payment[]
+
+  @@map("treasury_accounts")
+}
+
+model Payment {
+  id                String              @id @default(uuid()) @db.Uuid
+  projectId         String              @db.Uuid
+  contractId        String?             @db.Uuid
+  treasuryAccountId String              @db.Uuid
+  recipientName     String
+  recipientType     String
+  description       String
+  amount            Decimal             @db.Decimal(20, 3)
+  dueDate           DateTime?           @db.Date
+  directorSignedAt  DateTime?           @db.Date
+  disbursedAmount   Decimal?            @db.Decimal(20, 3)
+  disbursedAt       DateTime?           @db.Date
+  treasuryReference String?
+  status            PaymentStatus       @default(DRAFT)
+  createdById       String              @db.Uuid
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  project           Project             @relation(fields: [projectId], references: [id])
+  contract          Contract?           @relation(fields: [contractId], references: [id])
+  treasuryAccount   TreasuryAccount     @relation(fields: [treasuryAccountId], references: [id])
+  createdBy         User                @relation(fields: [createdById], references: [id])
+  approvals         PaymentApproval[]
+  attachments       PaymentAttachment[]
+  householdPayments HouseholdPayment[]
+
+  @@index([projectId, status])
+  @@index([projectId, disbursedAt])
+  @@index([dueDate, status])
+  @@map("payments")
+}
+
+model PaymentApproval {
+  id            String   @id @default(uuid()) @db.Uuid
+  paymentId     String   @db.Uuid
+  approvalLevel String
+  approverId    String   @db.Uuid
+  decision      String
+  decidedAt     DateTime @default(now())
+  comment       String?
+  payment       Payment  @relation(fields: [paymentId], references: [id])
+  approver      User     @relation(fields: [approverId], references: [id])
+
+  @@index([paymentId, decidedAt])
+  @@map("payment_approvals")
+}
+
+model ProjectSettlement {
+  id                     String                 @id @default(uuid()) @db.Uuid
+  projectId              String                 @unique @db.Uuid
+  approvedAmount         Decimal?               @db.Decimal(20, 2)
+  approvalDate           DateTime?              @db.Date
+  advanceRecoveredAmount Decimal                @default(0) @db.Decimal(20, 2)
+  reconciledAt           DateTime?
+  treasuryClosedAt       DateTime?
+  status                 String                 @default("DRAFT")
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  project                Project                @relation(fields: [projectId], references: [id])
+  attachments            SettlementAttachment[]
+
+  @@map("project_settlements")
+}
+
+model Household {
+  id                 String                      @id @default(uuid()) @db.Uuid
+  projectId          String                      @db.Uuid
+  code               String
+  headName           String
+  citizenId          String
+  recoveredAreaM2    Decimal                     @db.Decimal(16, 2)
+  landType           String
+  specialStatus      HouseholdSpecialStatus      @default(NORMAL)
+  currentStep        Int                         @default(1)
+  compensationAmount Decimal?                    @db.Decimal(20, 3)
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  project            Project                     @relation(fields: [projectId], references: [id])
+  steps              HouseholdStep[]
+  compensationItems  HouseholdCompensationItem[]
+  payments           HouseholdPayment[]
+
+  @@unique([projectId, code])
+  @@index([projectId, specialStatus])
+  @@map("households")
+}
+
+model CompensationPlan {
+  id          String                       @id @default(uuid()) @db.Uuid
+  projectId   String                       @db.Uuid
+  planNumber  String
+  version     Int                          @default(1)
+  status      String                       @default("DRAFT")
+  approvedAt  DateTime?                    @db.Date
+  createdAt   DateTime                     @default(now())
+  updatedAt   DateTime                     @updatedAt
+  project     Project                      @relation(fields: [projectId], references: [id])
+  items       HouseholdCompensationItem[]
+  attachments CompensationPlanAttachment[]
+
+  @@unique([projectId, planNumber, version])
+  @@map("compensation_plans")
+}
+
+model HouseholdCompensationItem {
+  id                 String           @id @default(uuid()) @db.Uuid
+  householdId        String           @db.Uuid
+  compensationPlanId String           @db.Uuid
+  itemType           String
+  quantity           Decimal          @db.Decimal(16, 2)
+  unitPrice          Decimal          @db.Decimal(20, 3)
+  amount             Decimal          @db.Decimal(20, 3)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  household          Household        @relation(fields: [householdId], references: [id])
+  compensationPlan   CompensationPlan @relation(fields: [compensationPlanId], references: [id])
+
+  @@index([householdId, compensationPlanId])
+  @@map("household_compensation_items")
+}
+
+model HouseholdPayment {
+  id          String    @id @default(uuid()) @db.Uuid
+  householdId String    @db.Uuid
+  paymentId   String    @db.Uuid
+  amount      Decimal   @db.Decimal(20, 3)
+  paidAt      DateTime? @db.Date
+  createdAt   DateTime  @default(now())
+  household   Household @relation(fields: [householdId], references: [id])
+  payment     Payment   @relation(fields: [paymentId], references: [id])
+
+  @@unique([householdId, paymentId])
+  @@index([paymentId])
+  @@map("household_payments")
+}
+
+model HouseholdStep {
+  id             String                    @id @default(uuid()) @db.Uuid
+  householdId    String                    @db.Uuid
+  stepNumber     Int
+  status         HouseholdStepStatus       @default(PENDING)
+  startedAt      DateTime?                 @db.Date
+  dueDate        DateTime?                 @db.Date
+  completedAt    DateTime?
+  documentNumber String?
+  note           String?
+  updatedById    String?                   @db.Uuid
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  household      Household                 @relation(fields: [householdId], references: [id])
+  updatedBy      User?                     @relation(fields: [updatedById], references: [id])
+  events         HouseholdStepEvent[]
+  attachments    HouseholdStepAttachment[]
+
+  @@unique([householdId, stepNumber])
+  @@index([status, dueDate])
+  @@map("household_steps")
+}
+
+model HouseholdStepEvent {
+  id              String               @id @default(uuid()) @db.Uuid
+  householdStepId String               @db.Uuid
+  fromStatus      HouseholdStepStatus?
+  toStatus        HouseholdStepStatus
+  changedById     String               @db.Uuid
+  changedAt       DateTime             @default(now())
+  reason          String?
+  householdStep   HouseholdStep        @relation(fields: [householdStepId], references: [id])
+  changedBy       User                 @relation(fields: [changedById], references: [id])
+
+  @@index([householdStepId, changedAt])
+  @@map("household_step_events")
+}
+
+model ProcurementPackage {
+  id              String          @id @default(uuid()) @db.Uuid
+  projectId       String          @db.Uuid
+  code            String
+  name            String
+  selectionMethod String
+  packageType     String
+  estimatedPrice  Decimal         @db.Decimal(20, 2)
+  winningPrice    Decimal?        @db.Decimal(20, 2)
+  winnerId        String?         @db.Uuid
+  bidDeadline     DateTime?
+  status          String          @default("PLANNING")
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  project         Project         @relation(fields: [projectId], references: [id])
+  winner          Contractor?     @relation(fields: [winnerId], references: [id])
+  steps           ProcureStep[]
+  bidSubmissions  BidSubmission[]
+  contracts       Contract[]
+
+  @@unique([projectId, code])
+  @@index([bidDeadline, status])
+  @@map("procurement_packages")
+}
+
+model ProcureStep {
+  id                String                  @id @default(uuid()) @db.Uuid
+  packageId         String                  @db.Uuid
+  stepNumber        Int
+  status            String                  @default("PENDING")
+  plannedStart      DateTime?               @db.Date
+  dueDate           DateTime?               @db.Date
+  completedAt       DateTime?
+  responsibleUserId String?                 @db.Uuid
+  note              String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  package           ProcurementPackage      @relation(fields: [packageId], references: [id])
+  responsibleUser   User?                   @relation(fields: [responsibleUserId], references: [id])
+  attachments       ProcureStepAttachment[]
+
+  @@unique([packageId, stepNumber])
+  @@map("procurement_steps")
+}
+
+model BidSubmission {
+  id           String             @id @default(uuid()) @db.Uuid
+  packageId    String             @db.Uuid
+  contractorId String             @db.Uuid
+  submittedAt  DateTime
+  bidPrice     Decimal?           @db.Decimal(20, 2)
+  status       String             @default("SUBMITTED")
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  package      ProcurementPackage @relation(fields: [packageId], references: [id])
+  contractor   Contractor         @relation(fields: [contractorId], references: [id])
+
+  @@unique([packageId, contractorId])
+  @@map("bid_submissions")
+}
+
+model Warranty {
+  id              String             @id @default(uuid()) @db.Uuid
+  projectId       String             @db.Uuid
+  contractId      String             @db.Uuid
+  acceptedAt      DateTime           @db.Date
+  durationMonths  Int
+  expiresAt       DateTime           @db.Date
+  guaranteeAmount Decimal?           @db.Decimal(20, 2)
+  issuingBank     String?
+  guaranteeStatus String             @default("HELD")
+  returnedAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  project         Project            @relation(fields: [projectId], references: [id])
+  contract        Contract           @relation(fields: [contractId], references: [id])
+  incidents       WarrantyIncident[]
+
+  @@index([expiresAt, guaranteeStatus])
+  @@map("warranties")
+}
+
+model WarrantyIncident {
+  id           String                       @id @default(uuid()) @db.Uuid
+  warrantyId   String                       @db.Uuid
+  detectedAt   DateTime                     @db.Date
+  description  String
+  location     String
+  contractorId String                       @db.Uuid
+  repairDueAt  DateTime?                    @db.Date
+  repairedAt   DateTime?                    @db.Date
+  acceptedAt   DateTime?                    @db.Date
+  status       String                       @default("OPEN")
+  createdAt    DateTime                     @default(now())
+  updatedAt    DateTime                     @updatedAt
+  warranty     Warranty                     @relation(fields: [warrantyId], references: [id])
+  contractor   Contractor                   @relation(fields: [contractorId], references: [id])
+  attachments  WarrantyIncidentAttachment[]
+
+  @@map("warranty_incidents")
+}
+
+model LegalDocument {
+  id             String                    @id @default(uuid()) @db.Uuid
+  documentNumber String?
+  title          String
+  documentType   String
+  issuer         String?
+  issuedAt       DateTime?                 @db.Date
+  effectiveAt    DateTime?                 @db.Date
+  sourceUrl      String?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  projects       ProjectLegalDocument[]
+  attachments    LegalDocumentAttachment[]
+
+  @@index([documentType, effectiveAt])
+  @@map("legal_documents")
+}
+
+model ProjectLegalDocument {
+  projectId       String        @db.Uuid
+  legalDocumentId String        @db.Uuid
+  project         Project       @relation(fields: [projectId], references: [id])
+  legalDocument   LegalDocument @relation(fields: [legalDocumentId], references: [id])
+
+  @@id([projectId, legalDocumentId])
+  @@map("project_legal_documents")
+}
+
+model DocumentTemplate {
+  id          String                       @id @default(uuid()) @db.Uuid
+  code        String
+  name        String
+  module      String
+  version     Int                          @default(1)
+  isActive    Boolean                      @default(true)
+  createdAt   DateTime                     @default(now())
+  updatedAt   DateTime                     @updatedAt
+  attachments DocumentTemplateAttachment[]
+
+  @@unique([code, version])
+  @@map("document_templates")
+}
+
+model ReportDraft {
+  id           String                  @id @default(uuid()) @db.Uuid
+  reportType   String
+  periodStart  DateTime                @db.Date
+  periodEnd    DateTime                @db.Date
+  projectId    String?                 @db.Uuid
+  content      String
+  status       String                  @default("DRAFT")
+  createdById  String                  @db.Uuid
+  reviewedById String?                 @db.Uuid
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  project      Project?                @relation(fields: [projectId], references: [id])
+  createdBy    User                    @relation("ReportAuthor", fields: [createdById], references: [id])
+  reviewedBy   User?                   @relation("ReportReviewer", fields: [reviewedById], references: [id])
+  attachments  ReportDraftAttachment[]
+
+  @@index([reportType, periodStart, periodEnd])
+  @@map("report_drafts")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @db.Uuid
+  action      String
+  entityType  String
+  entityId    String?
+  occurredAt  DateTime @default(now())
+  ipAddress   String?
+  beforeData  Json?
+  afterData   Json?
+  actorUser   User?    @relation(fields: [actorUserId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([occurredAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id              String    @id @default(uuid()) @db.Uuid
+  recipientUserId String    @db.Uuid
+  projectId       String?   @db.Uuid
+  category        String
+  severity        String
+  title           String
+  message         String
+  dueAt           DateTime?
+  readAt          DateTime?
+  sourceType      String?
+  sourceId        String?
+  createdAt       DateTime  @default(now())
+  recipientUser   User      @relation(fields: [recipientUserId], references: [id])
+  project         Project?  @relation(fields: [projectId], references: [id])
+
+  @@index([recipientUserId, readAt])
+  @@index([projectId, severity])
+  @@map("notifications")
+}
+
+model Attachment {
+  id                 String                        @id @default(uuid()) @db.Uuid
+  storageKey         String                        @unique
+  originalName       String
+  mimeType           String
+  sizeBytes          BigInt
+  checksum           String?
+  uploadedById       String                        @db.Uuid
+  createdAt          DateTime                      @default(now())
+  uploadedBy         User                          @relation(fields: [uploadedById], references: [id])
+  procedureSteps     ProcedureStepAttachment[]
+  payments           PaymentAttachment[]
+  capitalAdjustments CapitalAdjustmentAttachment[]
+  settlements        SettlementAttachment[]
+  compensationPlans  CompensationPlanAttachment[]
+  householdSteps     HouseholdStepAttachment[]
+  procurementSteps   ProcureStepAttachment[]
+  warrantyIncidents  WarrantyIncidentAttachment[]
+  legalDocuments     LegalDocumentAttachment[]
+  documentTemplates  DocumentTemplateAttachment[]
+  reportDrafts       ReportDraftAttachment[]
+
+  @@map("attachments")
+}
+
+model ProcedureStepAttachment {
+  projectStepId String               @db.Uuid
+  attachmentId  String               @db.Uuid
+  projectStep   ProjectProcedureStep @relation(fields: [projectStepId], references: [id])
+  attachment    Attachment           @relation(fields: [attachmentId], references: [id])
+
+  @@id([projectStepId, attachmentId])
+  @@map("procedure_step_attachments")
+}
+
+model PaymentAttachment {
+  paymentId    String     @db.Uuid
+  attachmentId String     @db.Uuid
+  payment      Payment    @relation(fields: [paymentId], references: [id])
+  attachment   Attachment @relation(fields: [attachmentId], references: [id])
+
+  @@id([paymentId, attachmentId])
+  @@map("payment_attachments")
+}
+
+model CapitalAdjustmentAttachment {
+  adjustmentId String                @db.Uuid
+  attachmentId String                @db.Uuid
+  adjustment   CapitalPlanAdjustment @relation(fields: [adjustmentId], references: [id])
+  attachment   Attachment            @relation(fields: [attachmentId], references: [id])
+
+  @@id([adjustmentId, attachmentId])
+  @@map("capital_adjustment_attachments")
+}
+
+model SettlementAttachment {
+  settlementId String            @db.Uuid
+  attachmentId String            @db.Uuid
+  settlement   ProjectSettlement @relation(fields: [settlementId], references: [id])
+  attachment   Attachment        @relation(fields: [attachmentId], references: [id])
+
+  @@id([settlementId, attachmentId])
+  @@map("settlement_attachments")
+}
+
+model CompensationPlanAttachment {
+  compensationPlanId String           @db.Uuid
+  attachmentId       String           @db.Uuid
+  compensationPlan   CompensationPlan @relation(fields: [compensationPlanId], references: [id])
+  attachment         Attachment       @relation(fields: [attachmentId], references: [id])
+
+  @@id([compensationPlanId, attachmentId])
+  @@map("compensation_plan_attachments")
+}
+
+model HouseholdStepAttachment {
+  householdStepId String        @db.Uuid
+  attachmentId    String        @db.Uuid
+  householdStep   HouseholdStep @relation(fields: [householdStepId], references: [id])
+  attachment      Attachment    @relation(fields: [attachmentId], references: [id])
+
+  @@id([householdStepId, attachmentId])
+  @@map("household_step_attachments")
+}
+
+model ProcureStepAttachment {
+  procureStepId String      @db.Uuid
+  attachmentId  String      @db.Uuid
+  procureStep   ProcureStep @relation(fields: [procureStepId], references: [id])
+  attachment    Attachment  @relation(fields: [attachmentId], references: [id])
+
+  @@id([procureStepId, attachmentId])
+  @@map("procure_step_attachments")
+}
+
+model WarrantyIncidentAttachment {
+  warrantyIncidentId String           @db.Uuid
+  attachmentId       String           @db.Uuid
+  warrantyIncident   WarrantyIncident @relation(fields: [warrantyIncidentId], references: [id])
+  attachment         Attachment       @relation(fields: [attachmentId], references: [id])
+
+  @@id([warrantyIncidentId, attachmentId])
+  @@map("warranty_incident_attachments")
+}
+
+model LegalDocumentAttachment {
+  legalDocumentId String        @db.Uuid
+  attachmentId    String        @db.Uuid
+  legalDocument   LegalDocument @relation(fields: [legalDocumentId], references: [id])
+  attachment      Attachment    @relation(fields: [attachmentId], references: [id])
+
+  @@id([legalDocumentId, attachmentId])
+  @@map("legal_document_attachments")
+}
+
+model DocumentTemplateAttachment {
+  documentTemplateId String           @db.Uuid
+  attachmentId       String           @db.Uuid
+  documentTemplate   DocumentTemplate @relation(fields: [documentTemplateId], references: [id])
+  attachment         Attachment       @relation(fields: [attachmentId], references: [id])
+
+  @@id([documentTemplateId, attachmentId])
+  @@map("document_template_attachments")
+}
+
+model ReportDraftAttachment {
+  reportDraftId String      @db.Uuid
+  attachmentId  String      @db.Uuid
+  reportDraft   ReportDraft @relation(fields: [reportDraftId], references: [id])
+  attachment    Attachment  @relation(fields: [attachmentId], references: [id])
+
+  @@id([reportDraftId, attachmentId])
+  @@map("report_draft_attachments")
+}
